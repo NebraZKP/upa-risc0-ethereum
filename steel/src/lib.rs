@@ -50,7 +50,7 @@ impl<H: EvmHeader> ViewCallInput<H> {
     /// Converts the input into a [ViewCallEnv] for execution.
     ///
     /// This method verifies that the state matches the state root in the header and panics if not.
-    pub fn into_env(self) -> ViewCallEnv<StateDB, H> {
+    pub fn into_env(self) -> ViewCallEnv<StateDb, H> {
         // verify that the state root matches the state trie
         let state_root = self.state_trie.hash_slow();
         assert_eq!(self.header.state_root(), &state_root, "State root mismatch");
@@ -76,7 +76,7 @@ impl<H: EvmHeader> ViewCallInput<H> {
             previous_header = ancestor;
         }
 
-        let db = StateDB::new(
+        let db = StateDb::new(
             self.state_trie,
             self.storage_tries,
             self.contracts,
@@ -96,13 +96,13 @@ sol! {
 }
 
 /// The [ViewCall] is configured from this object.
-pub struct ViewCallEnv<D: Database, H: EvmHeader> {
+pub struct ViewCallEnv<D, H: EvmHeader> {
     db: D,
     cfg_env: CfgEnvWithHandlerCfg,
     header: Sealed<H>,
 }
 
-impl<D: Database, H: EvmHeader> ViewCallEnv<D, H> {
+impl<D, H: EvmHeader> ViewCallEnv<D, H> {
     /// Creates a new view call environment.
     /// It uses the default configuration for the latest specification.
     pub fn new(db: D, header: Sealed<H>) -> Self {
@@ -166,11 +166,9 @@ impl<C: SolCall> ViewCall<C> {
 
     /// Executes the view call using the given environment.
     #[inline]
-    pub fn execute<D: Database, H: EvmHeader>(self, env: ViewCallEnv<D, H>) -> C::Return
-    where
-        <D as Database>::Error: Debug,
-    {
-        self.transact(env.db, env.cfg_env, env.header.inner())
+    pub fn execute<H: EvmHeader>(self, env: &ViewCallEnv<StateDb, H>) -> C::Return {
+        let db = WrapStateDb::new(&env.db);
+        self.transact(db, env.cfg_env.clone(), env.header.inner())
             .unwrap()
     }
 
@@ -228,16 +226,14 @@ impl<C: SolCall> ViewCall<C> {
 ///
 /// It is backed by a single [MerkleTrie] for the accounts and one [MerkleTrie] each for the
 /// accounts' storages. It panics when data is queried that is not contained in the tries.
-pub struct StateDB {
+pub struct StateDb {
     state_trie: MerkleTrie,
     storage_tries: HashMap<B256, Rc<MerkleTrie>>,
     contracts: HashMap<B256, Bytes>,
     block_hashes: HashMap<u64, B256>,
-
-    account_storage: HashMap<Address, Option<Rc<MerkleTrie>>>,
 }
 
-impl StateDB {
+impl StateDb {
     /// Creates a new state database from the given tries.
     pub fn new(
         state_trie: MerkleTrie,
@@ -258,25 +254,63 @@ impl StateDB {
             contracts,
             storage_tries,
             block_hashes,
+        }
+    }
+
+    fn account(&self, address: Address) -> Option<StateAccount> {
+        self.state_trie
+            .get_rlp(keccak256(address))
+            .expect("invalid state value")
+    }
+
+    fn code_by_hash(&self, hash: B256) -> &Bytes {
+        self.contracts
+            .get(&hash)
+            .unwrap_or_else(|| panic!("code not found: {}", hash))
+    }
+
+    fn block_hash(&self, number: U256) -> B256 {
+        // block number is never bigger then u64::MAX
+        let number: u64 = number.to();
+        let hash = self
+            .block_hashes
+            .get(&number)
+            .unwrap_or_else(|| panic!("block not found: {}", number));
+        *hash
+    }
+
+    fn storage_trie(&self, root: &B256) -> Option<&Rc<MerkleTrie>> {
+        self.storage_tries.get(root)
+    }
+}
+
+pub struct WrapStateDb<'a> {
+    inner: &'a StateDb,
+    account_storage: HashMap<Address, Option<Rc<MerkleTrie>>>,
+}
+
+impl<'a> WrapStateDb<'a> {
+    /// Creates a new [Database] from the given [StateDb].
+    fn new(inner: &'a StateDb) -> Self {
+        Self {
+            inner,
             account_storage: HashMap::new(),
         }
     }
 }
 
-impl Database for StateDB {
+impl Database for WrapStateDb<'_> {
     /// The database does not return any errors.
     type Error = Infallible;
 
+    /// Get basic account information.
     #[inline]
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        let account = self
-            .state_trie
-            .get_rlp::<StateAccount>(keccak256(address))
-            .expect("invalid state value");
+        let account = self.inner.account(address);
         match account {
             Some(account) => {
                 // link storage trie to the account, if it exists
-                if let Some(storage_trie) = self.storage_tries.get(&account.storage_root) {
+                if let Some(storage_trie) = self.inner.storage_trie(&account.storage_root) {
                     self.account_storage
                         .insert(address, Some(storage_trie.clone()));
                 }
@@ -296,15 +330,14 @@ impl Database for StateDB {
         }
     }
 
+    /// Get account code by its hash.
     #[inline]
-    fn code_by_hash(&mut self, hash: B256) -> Result<Bytecode, Self::Error> {
-        let code = self
-            .contracts
-            .get(&hash)
-            .unwrap_or_else(|| panic!("code not found: {}", hash));
+    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        let code = self.inner.code_by_hash(code_hash);
         Ok(Bytecode::new_raw(code.clone()))
     }
 
+    /// Get storage value of address at index.
     #[inline]
     fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
         let storage = self
@@ -322,15 +355,10 @@ impl Database for StateDB {
         }
     }
 
+    /// Get block hash by block number.
     #[inline]
     fn block_hash(&mut self, number: U256) -> Result<B256, Self::Error> {
-        // block number is never bigger then u64::MAX
-        let number: u64 = number.to();
-        let hash = self
-            .block_hashes
-            .get(&number)
-            .unwrap_or_else(|| panic!("block not found: {}", number));
-        Ok(*hash)
+        Ok(self.inner.block_hash(number))
     }
 }
 

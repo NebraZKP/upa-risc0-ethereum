@@ -48,7 +48,7 @@ fn erc20_balance_of() {
 
     // execute the call
     let env = input.into_env();
-    let result = ViewCall::new(call, contract).execute(env);
+    let result = ViewCall::new(call, contract).execute(&env);
     assert_eq!(result._0, uint!(3000000000000000_U256));
 }
 
@@ -98,7 +98,7 @@ fn uniswap_exact_output_single() {
     let env = input.into_env();
     let result = ViewCall::new(call, contract)
         .with_caller(caller)
-        .execute(env);
+        .execute(&env);
     assert_eq!(result.amountIn, uint!(112537714517_U256));
 }
 
