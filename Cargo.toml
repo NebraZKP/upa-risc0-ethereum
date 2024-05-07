@@ -17,10 +17,10 @@ risc0-ethereum-relay = { version = "0.11.0-alpha.1", default-features = false, p
 risc0-steel = { version = "0.11.0-alpha.1", default-features = false, path = "steel" }
 risc0-forge-ffi = { version = "0.11.0-alpha.1", default-features = false, path = "ffi" }
 
-alloy-primitives = { version = "0.6.4", features = ["serde", "rlp", "std"] }
+alloy-primitives = { version = "0.7.2", features = ["serde", "rlp", "std"] }
 alloy-rlp = { version = "0.3.4", default-features = false }
 alloy-rlp-derive = { version = "0.3.4", default-features = false }
-alloy-sol-types = { version = "0.6.4" }
+alloy-sol-types = { version = "0.7.2" }
 alloy-trie = { version = "0.3.0" }
 anyhow = { version = "1.0" }
 bincode = { version = "1.3" }
@@ -31,7 +31,7 @@ ethers-providers = "2.0"
 log = "0.4"
 nybbles = { version = "0.2.1", features = ["serde"] }
 once_cell = "1.19"
-revm = { version = "7.2", default-features = false, features = ["std"] }
+revm = { version = "8.0", default-features = false, features = ["std"] }
 risc0-build = { version = "0.21", default-features = false }
 risc0-zkp = { version = "0.21", default-features = false }
 risc0-zkvm = { version = "0.21", default-features = false }

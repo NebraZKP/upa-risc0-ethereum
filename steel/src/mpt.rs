@@ -521,7 +521,7 @@ mod tests {
         // reconstruct the trie from the RLP encoded proofs and verify the root hash
         let mpt = MerkleTrie::from_rlp_nodes(proofs.into_values())
             .expect("Failed to reconstruct Merkle Trie from proofs");
-        assert_eq!(mpt.hash_slow(), root);
+        assert_eq!(mpt.hash_slow().0, root.0);
     }
 
     #[test]
