@@ -17,7 +17,8 @@
 
 pragma solidity ^0.8.9;
 
-import {SafeCast} from "openzeppelin/contracts/utils/math/SafeCast.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "@nebrazkp/upa/contracts/IUpaVerifier.sol";
 
 import {ControlID} from "./ControlID.sol";
 import {Groth16Verifier} from "./Groth16Verifier.sol";
@@ -52,6 +53,10 @@ contract RiscZeroGroth16Verifier is IRiscZeroVerifier, Groth16Verifier {
     using ReceiptClaimLib for ReceiptClaim;
     using OutputLib for Output;
     using SafeCast for uint256;
+
+    IUpaVerifier public upaVerifier;
+    // Computed using the upa tool
+    bytes32 public constant riscZeroCircuitId = 0xe3904570f79c394af5d945600f79bbbe0219f06313b74d18c64967b6c29d74a6;
 
     /// @notice Control root hash binding the set of circuits in the RISC Zero system.
     /// @dev This value controls what set of recursion programs (e.g. lift, join, resolve), and
@@ -107,9 +112,11 @@ contract RiscZeroGroth16Verifier is IRiscZeroVerifier, Groth16Verifier {
         );
     }
 
-    constructor(bytes32 control_root, bytes32 bn254_control_id) {
-        (CONTROL_ROOT_0, CONTROL_ROOT_1) = splitDigest(control_root);
-        BN254_CONTROL_ID = bn254_control_id;
+    constructor(IUpaVerifier _upaVerifier) {
+        upaVerifier = _upaVerifier;
+
+        (CONTROL_ROOT_0, CONTROL_ROOT_1) = splitDigest(ControlID.CONTROL_ROOT);
+        BN254_CONTROL_ID = ControlID.BN254_CONTROL_ID;
 
         SELECTOR = bytes4(
             sha256(
@@ -117,8 +124,8 @@ contract RiscZeroGroth16Verifier is IRiscZeroVerifier, Groth16Verifier {
                     // tag
                     sha256("risc0.Groth16ReceiptVerifierParameters"),
                     // down
-                    control_root,
-                    reverseByteOrderUint256(uint256(bn254_control_id)),
+                    ControlID.CONTROL_ROOT,
+                    reverseByteOrderUint256(uint256(ControlID.BN254_CONTROL_ID)),
                     verifier_key_digest(),
                     // down length
                     uint16(3) << 8
@@ -137,41 +144,41 @@ contract RiscZeroGroth16Verifier is IRiscZeroVerifier, Groth16Verifier {
     }
 
     /// @inheritdoc IRiscZeroVerifier
-    function verify(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) external view {
-        _verifyIntegrity(seal, ReceiptClaimLib.ok(imageId, journalDigest).digest());
+    function verify(bytes32 imageId, bytes32 journalDigest) external view {
+        _verifyIntegrity(ReceiptClaimLib.ok(imageId, journalDigest).digest());
     }
 
     /// @inheritdoc IRiscZeroVerifier
     function verifyIntegrity(Receipt calldata receipt) external view {
-        return _verifyIntegrity(receipt.seal, receipt.claimDigest);
+        return _verifyIntegrity(receipt.claimDigest);
     }
 
     /// @notice internal implementation of verifyIntegrity, factored to avoid copying calldata bytes to memory.
-    function _verifyIntegrity(bytes calldata seal, bytes32 claimDigest) internal view {
-        // Check that the seal has a matching selector. Mismatch generally indicates that the
-        // prover and this verifier are using different parameters, and so the verification
-        // will not succeed.
-        if (SELECTOR != bytes4(seal[:4])) {
-            revert SelectorMismatch({received: bytes4(seal[:4]), expected: SELECTOR});
-        }
+    function _verifyIntegrity(bytes32 claimDigest) internal view {
+        // TODO: Pass in first four bytes of seal to check selector
+        //
+        // // Check that the seal has a matching selector. Mismatch generally indicates that the
+        // // prover and this verifier are using different parameters, and so the verification
+        // // will not succeed.
+        // if (SELECTOR != bytes4(seal[:4])) {
+        //     revert SelectorMismatch({received: bytes4(seal[:4]), expected: SELECTOR});
+        // }
 
-        // Run the Groth16 verify procedure.
+        // Check the verification status on UPA
         (bytes16 claim0, bytes16 claim1) = splitDigest(claimDigest);
-        Seal memory decodedSeal = abi.decode(seal[4:], (Seal));
-        bool verified = this.verifyProof(
-            decodedSeal.a,
-            decodedSeal.b,
-            decodedSeal.c,
-            [
-                uint256(uint128(CONTROL_ROOT_0)),
-                uint256(uint128(CONTROL_ROOT_1)),
-                uint256(uint128(claim0)),
-                uint256(uint128(claim1)),
-                uint256(BN254_CONTROL_ID)
-            ]
+        uint256[] memory publicInputs = new uint256[](5);
+        publicInputs[0] = uint256(uint128(CONTROL_ROOT_0));
+        publicInputs[1] = uint256(uint128(CONTROL_ROOT_1));
+        publicInputs[2] = uint256(uint128(claim0));
+        publicInputs[3] = uint256(uint128(claim1));
+        publicInputs[4] = uint256(BN254_CONTROL_ID);
+
+        bool verified = upaVerifier.isProofVerified(
+            riscZeroCircuitId,
+            publicInputs
         );
 
-        // Revert is verification failed.
+        // Revert if verification failed.
         if (!verified) {
             revert VerificationFailed();
         }
