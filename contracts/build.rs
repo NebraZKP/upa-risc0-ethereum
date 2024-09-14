@@ -23,19 +23,19 @@ fn main() -> anyhow::Result<()> {
     let out_dir = std::path::Path::new(&out_dir);
     let cache_dir = out_dir.join(".cache");
 
-    let mut forge_build = Command::new("forge")
-        .arg("build")
-        .arg("--cache-path")
-        .arg(cache_dir)
-        .arg("--out")
-        .arg(out_dir)
-        .spawn()
-        .context("failed to start `forge build`")?;
+    // let mut forge_build = Command::new("forge")
+    //     .arg("build")
+    //     .arg("--cache-path")
+    //     .arg(cache_dir)
+    //     .arg("--out")
+    //     .arg(out_dir)
+    //     .spawn()
+    //     .context("failed to start `forge build`")?;
 
-    let status = forge_build.wait().context("failed to run `forge build`")?;
-    if !status.success() {
-        anyhow::bail!("`forge build` exited with failed status: {}", status);
-    }
+    // let status = forge_build.wait().context("failed to run `forge build`")?;
+    // if !status.success() {
+    //     anyhow::bail!("`forge build` exited with failed status: {}", status);
+    // }
 
     Ok(())
 }

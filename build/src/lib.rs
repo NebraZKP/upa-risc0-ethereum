@@ -97,7 +97,7 @@ pub fn generate_solidity_files(guests: &[GuestListEntry], opts: &Options) -> Res
         "path for guest ELFs Solidity file must be provided"
     ))?;
     fs::write(elf_sol_path, generate_elf_sol(guests)?)
-        .with_context(|| format!("failed to save changes to {}", image_id_file_path.display()))?;
+        .with_context(|| format!("failed to save changes to {}", elf_sol_path.display()))?;
 
     Ok(())
 }
